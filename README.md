@@ -1,27 +1,33 @@
-<<<<<<< HEAD
-# projeto_airflow_databricks
-=======
-# Projeto Airflow + Databricks + Azure Blob
+# 🚀 Data Pipeline com Airflow + Databricks + Azure Storage
 
-## Como usar
+Este repositório contém uma arquitetura moderna de pipeline de dados orquestrada com **Apache Airflow** (Astronomer project), integrada ao **Azure Databricks** e **Azure Storage**. A pipeline executa notebooks em três camadas: **Bronze**, **Silver** e **Gold**, com as camadas silver e gold com controle de catálogo pelo **Unity Catalog**.
 
-1. Inicie o ambiente:
-```bash
-docker compose up
-```
+<p align="center">
+  <img src="./airflow.png" alt="Arquitetura do pipeline" width="600"/>
+</p>
+---
 
-2. Acesse o Airflow em http://localhost:8080  
-Login: admin | Senha: admin
+## 📁 Estrutura do Projeto
 
-3. Configure a conexão `databricks_default` no Airflow com:
-- Host: https://community.cloud.databricks.com
-- Token: seu token pessoal do Databricks
+. ├── dags/ # DAGs do Airflow │ └── pipeline_datalake.py ├── docker/ # Configuração do ambiente Docker │ └── Dockerfile ├── include/ │ └── notebooks/ # Notebooks Databricks │ ├── bronze/ │ │ └── ingest_json_data.py │ ├── silver/ │ │ └── process_to_silver.py │ └── gold/ │ └── aggregate_gold_metrics.py ├── plugins/ # Plugins do Airflow (opcional) ├── config/ # Configs e templates auxiliares ├── .env # Variáveis de ambiente sensíveis ├── requirements.txt # Dependências do Airflow └──
 
-4. Altere o DAG (`dag_databricks_blob.py`) com:
-- Cluster ID
-- Notebook path
 
-5. No notebook (`processar_dados.py`), substitua os dados do Azure Blob (sas token, conta, etc.).
 
-Pronto! Seu Airflow executará notebooks no Databricks Community e integrará com Azure Blob.
->>>>>>> ff55c88 (commit de teste)
+## Sobre a arquitetura
+🔸 Bronze Layer
+
+Ingestão de dados crus vindos da API https://api.openbrewerydb.org .
+
+Escrita em arquivos .json no Azure Data Lake.
+
+🔹 Silver Layer
+
+Estruturação dos dados brutos e particionamento por localidade
+
+Escrita em tabelas Delta no Unity Catalog.
+
+🟡 Gold Layer
+
+Agregação e dataset pronto para consumo analítico.
+
+Tabelas Delta gerenciadas via Unity Catalog.
