@@ -1,13 +1,19 @@
+import logging
 from airflow.decorators import dag, task
 from airflow.providers.databricks.operators.databricks import DatabricksSubmitRunOperator
 from airflow.providers.databricks.hooks.databricks import DatabricksHook
 from pendulum import datetime
 from datetime import timedelta
 import time
+from airflow.utils.trigger_rule import TriggerRule
 
-# Configurações do cluster (igual ao que você forneceu)
+# Configuration
+USER_EMAIL = "willerags@gmail.com"
+CLUSTER_NAME = "cluster_pipes"
+
+# Cluster configuration 
 CLUSTER_CONFIG = {
-    "cluster_name": "compute",
+    "cluster_name": CLUSTER_NAME,
     "spark_version": "15.4.x-scala2.12",
     "spark_conf": {
         "spark.databricks.cluster.profile": "singleNode",
@@ -25,13 +31,13 @@ CLUSTER_CONFIG = {
     },
     "autotermination_minutes": 20,
     "enable_elastic_disk": True,
-    "single_user_name": "willerags@gmail.com",
+    "single_user_name": USER_EMAIL,
     "data_security_mode": "SINGLE_USER",
     "runtime_engine": "STANDARD",
     "num_workers": 0
 }
 
-# Configurações dos notebooks
+# Notebook paths
 NOTEBOOK_PATHS = {
     "bronze": "notebooks/notebook/bronze",
     "silver": "notebooks/notebook/silver",
@@ -44,7 +50,9 @@ NOTEBOOK_PATHS = {
     catchup=False,
     default_args={
         'retries': 2,
-        'retry_delay': timedelta(minutes=5)
+        'retry_delay': timedelta(minutes=5),
+        'email_on_failure': True,
+        'email': USER_EMAIL
     },
     tags=['databricks', 'etl']
 )
@@ -52,60 +60,133 @@ def etl_pipeline():
     
     @task
     def create_and_wait_for_cluster():
-        """Cria o cluster e espera até estar pronto"""
+        """Create and wait for the cluster to be ready"""
         hook = DatabricksHook()
         
-        # Verifica se o cluster já existe
-        existing = hook._do_api_call(('GET', 'api/2.0/clusters/list'), {})
-        for cluster in existing.get('clusters', []):
-            if cluster['cluster_name'] == CLUSTER_CONFIG['cluster_name']:
-                cluster_id = cluster['cluster_id']
-                print(f"Usando cluster existente: {cluster_id}")
-                break
-        else:
-            # Cria novo cluster se não existir
-            response = hook._do_api_call(
-                ('POST', 'api/2.0/clusters/create'),
-                CLUSTER_CONFIG
-            )
-            cluster_id = response['cluster_id']
-            print(f"Cluster criado com ID: {cluster_id}")
+        # Check if the cluster already exists
+        existing_clusters = hook._do_api_call(('GET', 'api/2.0/clusters/list'), {})
+        for cluster in existing_clusters.get('clusters', []):
+            if cluster['cluster_name'] == CLUSTER_NAME:
+                if cluster['state'] == 'TERMINATED':
+                    # Restart if it is terminated
+                    hook._do_api_call(
+                        ('POST', 'api/2.0/clusters/start'),
+                        {'cluster_id': cluster['cluster_id']}
+                    )
+                return cluster['cluster_id']
         
-        # Espera o cluster ficar pronto
+        # Create a new cluster if it doesn't exist
+        response = hook._do_api_call(
+            ('POST', 'api/2.0/clusters/create'),
+            CLUSTER_CONFIG
+        )
+        cluster_id = response['cluster_id']
+        
+        # Wait until the cluster is running
         while True:
             status = hook._do_api_call(
                 ('GET', 'api/2.0/clusters/get'),
                 {'cluster_id': cluster_id}
             )
-            if status['state'] == 'RUNNING':
+            state = status['state']
+            if state == 'RUNNING':
+                logging.info(f"Cluster {CLUSTER_NAME} is running.")
                 return cluster_id
-            elif status['state'] in ['TERMINATED', 'ERROR']:
-                raise Exception(f"Cluster falhou: {status['state']}")
-            print(f"Cluster status: {status['state']} - Aguardando...")
+            elif state in ['TERMINATED', 'ERROR', 'UNKNOWN']:
+                raise Exception(f"Cluster failed with state: {state}")
+            logging.info(f"Cluster status: {state} - Waiting...")
             time.sleep(30)
     
-    # Tarefa para preparar o cluster
+    @task(
+        trigger_rule=TriggerRule.ALL_DONE,
+        retries=3,
+        retry_delay=timedelta(minutes=2)
+    )
+    def safe_delete_cluster(cluster_id):
+        """Safely delete the cluster after all tasks are completed"""
+        hook = DatabricksHook()
+        
+        try:
+            # Check current status
+            status = hook._do_api_call(
+                ('GET', 'api/2.0/clusters/get'),
+                {'cluster_id': cluster_id}
+            )
+            
+            if status['state'] == 'RUNNING':
+                logging.info(f"Starting safe deletion of cluster {cluster_id}")
+                hook._do_api_call(
+                    ('POST', 'api/2.0/clusters/delete'),
+                    {'cluster_id': cluster_id}
+                )
+                
+                # Optional termination check
+                for _ in range(6):  # 3 minutes timeout
+                    try:
+                        status = hook._do_api_call(
+                            ('GET', 'api/2.0/clusters/get'),
+                            {'cluster_id': cluster_id}
+                        )
+                        if status['state'] == 'TERMINATED':
+                            logging.info(f"Cluster {cluster_id} terminated successfully.")
+                            return
+                        time.sleep(30)
+                    except Exception as e:
+                        if "does not exist" in str(e):
+                            logging.info(f"Cluster {cluster_id} removed successfully.")
+                            return
+                        raise
+                logging.warning("Warning: Timeout during termination check")
+                
+            elif status['state'] in ['TERMINATING', 'TERMINATED']:
+                logging.info(f"Cluster already in state: {status['state']}")
+            else:
+                logging.warning(f"Cluster in unexpected state: {status['state']}")
+                
+        except Exception as e:
+            if "does not exist" in str(e):
+                logging.info("Cluster no longer exists")
+            else:
+                logging.error(f"Error during deletion: {str(e)}")
+                raise
+    
+    # ===== MAIN TASKS =====
     cluster_id = create_and_wait_for_cluster()
     
-    # Função auxiliar para criar tarefas de notebook
-    def create_notebook_task(task_id, notebook_path):
-        return DatabricksSubmitRunOperator(
-            task_id=task_id,
-            databricks_conn_id="databricks_default",
-            existing_cluster_id=cluster_id,
-            notebook_task={
-                "notebook_path": f"/Users/willerags@gmail.com/{notebook_path}",
-                "source": "WORKSPACE"
-            }
-        )
+    # Notebook tasks using the same cluster
+    bronze_task = DatabricksSubmitRunOperator(
+        task_id="bronze_layer",
+        databricks_conn_id="databricks_default",
+        existing_cluster_id=cluster_id,
+        notebook_task={
+            "notebook_path": f"/Users/{USER_EMAIL}/{NOTEBOOK_PATHS['bronze']}",
+            "source": "WORKSPACE"
+        }
+    )
     
-    # Cria as tarefas de notebook
-    bronze = create_notebook_task("bronze", NOTEBOOK_PATHS["bronze"])
-    silver = create_notebook_task("silver", NOTEBOOK_PATHS["silver"])
-    gold = create_notebook_task("gold", NOTEBOOK_PATHS["gold"])
+    silver_task = DatabricksSubmitRunOperator(
+        task_id="silver_layer",
+        databricks_conn_id="databricks_default",
+        existing_cluster_id=cluster_id,
+        notebook_task={
+            "notebook_path": f"/Users/{USER_EMAIL}/{NOTEBOOK_PATHS['silver']}",
+            "source": "WORKSPACE"
+        }
+    )
     
-    # Define o fluxo de execução
-    cluster_id >> bronze >> silver >> gold
+    gold_task = DatabricksSubmitRunOperator(
+        task_id="gold_layer",
+        databricks_conn_id="databricks_default",
+        existing_cluster_id=cluster_id,
+        notebook_task={
+            "notebook_path": f"/Users/{USER_EMAIL}/{NOTEBOOK_PATHS['gold']}",
+            "source": "WORKSPACE"
+        }
+    )
+    
+    # ===== TASK EXECUTION ORDER =====
+   
+    cluster_id >> bronze_task >> silver_task >> gold_task >> safe_delete_cluster(cluster_id)
 
-# Instancia a DAG
-dag = etl_pipeline()
+# Instantiate the DAG
+etl_pipeline_dag = etl_pipeline()
