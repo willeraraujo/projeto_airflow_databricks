@@ -83,14 +83,14 @@ astro version
 
 ## 🏗️ Create Airflow Project
 
-### 4. Initialize project
+### 1. Initialize project
 ```powershell
 mkdir airflow-project
 cd airflow-project
 astro dev init
 ```
 
-### 5. Add dependencies 
+### 2. Add dependencies 
 Edit `requirements.txt` file and add:
 ```
 apache-airflow-providers-databricks
@@ -100,7 +100,7 @@ apache-airflow-providers-databricks
 
 ## 🚦 Start Environment
 
-### 6. Launch containers
+### 1. Launch containers
 ```powershell
 astro dev start
 ```
@@ -110,7 +110,7 @@ This will:
 - Start all services
 - Make web UI available on port 8080
 
-### 7. Access Interface
+### 2. Access Interface
 ```
 http://localhost:8080
 ```
@@ -339,5 +339,44 @@ You can now work directly from Git in your Databricks notebooks!
 ---
 
 ✅ You're all set! Your Databricks workspace now has secure and governed access to Azure Data Lake using Unity Catalog and Access Connector 🎯
+
+
+# 📊 Suggested Monitoring and Alerting with Datadog for Data Pipelines
+
+To ensure the reliability and observability of the data pipeline, it is suggested to implement a monitoring and alerting process using **Datadog**, centralizing the collection of logs and metrics from **Apache Airflow** and **Databricks**.
+
+## 🔍 Operational Visibility
+
+With **custom dashboards**, it would be possible to monitor:
+
+- Execution status of DAGs and jobs
+- Data quality (e.g., nulls, duplicates, anomalies)
+- Task performance and execution times
+
+## 🚨 Automated Alerts
+
+Alerts can be configured based on:
+
+- Critical or recurring failures
+- Slowdowns beyond historical thresholds
+- Inconsistencies in data quality
+
+These alerts could trigger **webhooks** to notify teams via **Slack** or other communication tools.
+
+## 🔧 Next Step: Integration with ServiceNow
+
+As a next step, it is suggested to **integrate with ServiceNow** to automatically create incidents from critical alerts, further improving operational response capability.
+
+This approach provides greater control, traceability, and agility in managing data pipelines.
+
+---
+
+**🔗 Expected Benefits:**
+
+- Proactive failure detection  
+- Fast and structured incident response  
+- Unified monitoring across platforms  
+- Scalable and automated support for data operations
+
 
 
