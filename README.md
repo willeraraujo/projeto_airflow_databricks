@@ -147,7 +147,7 @@ wsl --shutdown
 **Issue**: DAGs not appearing  
 ✅ **Solution**:
 1. Verify files are in `/dags` folder
-Add the DAG from this repository to the dags folder. Translate and say to change the parameters to the notebook path in Databricks
+Add the DAG from this repository to the dags folder. Change the parameters to the notebook path in Databricks
 2. Run:
 ```powershell
 astro dev restart
@@ -155,7 +155,7 @@ astro dev restart
 
 ## 📌 Adding Your DAGs
 
-1. Grab the DAG files from this repo  
+1. Add the DAG from this repository to the dags folder. Change the parameters to the notebook path in Databricks
 2. Drop them in your Airflow project's `dags/` folder
 ---
 
