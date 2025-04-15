@@ -147,7 +147,7 @@ wsl --shutdown
 **Issue**: DAGs not appearing  
 ✅ **Solution**:
 1. Verify files are in `/dags` folder
-Add the dag desse repositorio na pasta dags
+Add the DAG from this repository to the dags folder. Translate and say to change the parameters to the notebook path in Databricks
 2. Run:
 ```powershell
 astro dev restart
